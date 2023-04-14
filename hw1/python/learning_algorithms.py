@@ -26,7 +26,11 @@ class PGTrainer:
             self.update_policy(loss)
             # TODO: Calculate avg reward for this rollout
             # HINT: Add all the rewards from each trajectory. There should be "ntr" trajectories within a single rollout.
-            avg_ro_reward = ???
+            reward_total = 0
+            for t in trajectory:
+                reward_total = reward_total + sum(t['reward'])
+                
+            avg_ro_reward = reward_total / len(trajectory)
             print(f'End of rollout {ro_idx}: Average trajectory reward is {avg_ro_reward: 0.2f}')
             # Append average rollout reward into a list
             list_ro_reward.append(avg_ro_reward)
