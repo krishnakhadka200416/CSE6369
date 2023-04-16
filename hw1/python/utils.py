@@ -24,7 +24,8 @@ def apply_reward_to_go(raw_reward):
     for i in reversed(raw_reward):
         s += i
         rtg_reward.append(s)
-    rtg_reward = np.array(rtg_reward).flip()
+    rtg_reward = np.array(rtg_reward)
+    rtg_reward = np.flip(rtg_reward)
         
     # Normalization
     rtg_reward = np.array(rtg_reward)
@@ -41,8 +42,8 @@ def apply_discount(raw_reward, gamma=0.99):
     for i in reversed(raw_reward):
         s = i + gamma * s
         discounted_rtg_reward.append(s)
-    discounted_rtg_reward = np.array(discounted_rtg_reward).flip()
-    
+    discounted_rtg_reward = np.array(discounted_rtg_reward)
+    discounted_rtg_reward = np.flip(discounted_rtg_reward)
     
         
     # Normalization

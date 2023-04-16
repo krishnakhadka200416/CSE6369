@@ -24,13 +24,17 @@ class PGTrainer:
             trajectory = self.agent.collect_trajectory(policy=self.actor_policy)
             loss = self.estimate_loss_function(trajectory)
             self.update_policy(loss)
+            
             # TODO: Calculate avg reward for this rollout
             # HINT: Add all the rewards from each trajectory. There should be "ntr" trajectories within a single rollout.
             reward_total = 0
-            for t in trajectory:
-                reward_total = reward_total + sum(t['reward'])
+            ntr = self.params["n_trajectory_per_rollout"]
+            
+            for t in range(ntr):
+                for r in trajectory["reward"]:
+                    reward_total = reward_total + sum(r)
                 
-            avg_ro_reward = reward_total / len(trajectory)
+            avg_ro_reward = reward_total / ntr
             print(f'End of rollout {ro_idx}: Average trajectory reward is {avg_ro_reward: 0.2f}')
             # Append average rollout reward into a list
             list_ro_reward.append(avg_ro_reward)
@@ -47,12 +51,21 @@ class PGTrainer:
         loss = list()
         for t_idx in range(self.params['n_trajectory_per_rollout']):
             # TODO: Compute loss function
-            # HINT 1: You should implement eq 6, 7 and 8 here. Which will be used based on the flags set from the main function
-            ???
+            # HINT 1: You should implement eq 6 (Vanilla Policy Gradient), 7(Reward to Go) and 8(Reward Discounting) here. Which will be used based on the flags set from the main function
+            rewards = trajectory["reward"][t_idx]
+            if self.params['reward_to_go']:
+                computed_reward = apply_reward_to_go(rewards)
+            elif self.params['reward_discount']:
+                computed_reward = apply_discount(rewards)
+            else:
+                computed_reward = apply_return(rewards)
+             
             # HINT 2: Get trajectory action log-prob
-            ???
+            log_prob = trajectory["log_prob"][t_idx]
             # HINT 3: Calculate Loss function and append to the list
-            ???
+            reward_log = computed_reward * log_prob
+            tpr_loss = - torch.mean(reward_log)
+            loss.append(tpr_loss)
         loss = torch.stack(loss).mean()
         return loss
 
@@ -78,12 +91,20 @@ class PGPolicy(nn.Module):
         super(PGPolicy, self).__init__()
         # TODO: Define the policy net
         # HINT: You can use nn.Sequential to set up a 2 layer feedforward neural network.
-        self.policy_net = ???
+        self.policy_net = nn.Sequential(
+            nn.Linear(input_size, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_size),
+            nn.Softmax(dim = -1)
+        )
 
     def forward(self, obs):
         # TODO: Forward pass of policy net
         # HINT: (use Categorical from torch.distributions to draw samples and log-prob from model output)
-        ???
+        x = self.policy_net(obs)
+        action_distribution = torch.distributions.Categorical(x)
+        action_index = action_distribution.sample()
+        log_prob = action_distribution.log_prob(action_index)
         return action_index, log_prob
 
 
@@ -101,9 +122,10 @@ class Agent:
             trajectory_buffer = {'log_prob': list(), 'reward': list()}
             while True:
                 # TODO: Get action from the policy (forward pass of policy net)
-                action_idx, log_prob = ???
+                action_idx, log_prob = policy(torch.tensor(obs, dtype = torch.float32))
+            
                 # TODO: Step environment (use self.env.step() function)
-                obs, reward, terminated, truncated, info = ???
+                obs, reward, terminated, truncated, info = self.env.step(self.action_space[action_idx])
                 # Save log-prob and reward into the buffer
                 trajectory_buffer['log_prob'].append(log_prob)
                 trajectory_buffer['reward'].append(reward)
