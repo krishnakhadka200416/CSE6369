@@ -20,21 +20,27 @@ class PGTrainer:
     def run_training_loop(self):
         list_ro_reward = list()
 
+              
         for ro_idx in range(self.params['n_rollout']):
             trajectory = self.agent.collect_trajectory(policy=self.actor_policy)
             loss = self.estimate_loss_function(trajectory)
+         
             self.update_policy(loss)
             
             # TODO: Calculate avg reward for this rollout
             # HINT: Add all the rewards from each trajectory. There should be "ntr" trajectories within a single rollout.
             reward_total = 0
             ntr = self.params["n_trajectory_per_rollout"]
-            
+
             for t in range(ntr):
-                for r in trajectory["reward"]:
-                    reward_total = reward_total + sum(r)
+                trajectory_reward = sum(trajectory["reward"][t])
+#                 print("trajectory_reward: ", trajectory_reward)
+                reward_total += trajectory_reward
+#                 for r in trajectory["reward"]:
+#                     reward_total = reward_total + sum(r)
                 
-            avg_ro_reward = reward_total / ntr
+
+            avg_ro_reward = reward_total / ntr 
             print(f'End of rollout {ro_idx}: Average trajectory reward is {avg_ro_reward: 0.2f}')
             # Append average rollout reward into a list
             list_ro_reward.append(avg_ro_reward)
@@ -52,27 +58,40 @@ class PGTrainer:
         for t_idx in range(self.params['n_trajectory_per_rollout']):
             # TODO: Compute loss function
             # HINT 1: You should implement eq 6 (Vanilla Policy Gradient), 7(Reward to Go) and 8(Reward Discounting) here. Which will be used based on the flags set from the main function
+        
             rewards = trajectory["reward"][t_idx]
-            if self.params['reward_to_go']:
-                computed_reward = apply_reward_to_go(rewards)
-            elif self.params['reward_discount']:
-                computed_reward = apply_discount(rewards)
-            else:
-                computed_reward = apply_return(rewards)
-             
             # HINT 2: Get trajectory action log-prob
             log_prob = trajectory["log_prob"][t_idx]
+           
+            
+            if self.params['reward_to_go']:
+                computed_reward = apply_reward_to_go(rewards)
+       
+                
+            elif self.params['reward_discount']:
+                computed_reward = apply_discount(rewards)
+      
+               
+            else:
+                computed_reward = apply_return(rewards)
+       
+                
+            
             # HINT 3: Calculate Loss function and append to the list
-            reward_log = computed_reward * log_prob
-            tpr_loss = - torch.mean(reward_log)
+            reward_log = torch.mul(log_prob , computed_reward) 
+          
+            tpr_loss = - torch.sum(reward_log)
+         
             loss.append(tpr_loss)
+            
         loss = torch.stack(loss).mean()
         return loss
 
     def update_policy(self, loss):
+        self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        self.optimizer.zero_grad()
+        
 
     def generate_video(self, max_frame=1000):
         self.env = gym.make(self.params['env_name'], render_mode='rgb_array_list')
@@ -92,19 +111,19 @@ class PGPolicy(nn.Module):
         # TODO: Define the policy net
         # HINT: You can use nn.Sequential to set up a 2 layer feedforward neural network.
         self.policy_net = nn.Sequential(
-            nn.Linear(input_size, hidden_dim),
-            nn.ReLU(),
+            nn.Linear(input_size, hidden_dim), 
             nn.Linear(hidden_dim, output_size),
-            nn.Softmax(dim = -1)
+        
         )
 
     def forward(self, obs):
         # TODO: Forward pass of policy net
         # HINT: (use Categorical from torch.distributions to draw samples and log-prob from model output)
-        x = self.policy_net(obs)
-        action_distribution = torch.distributions.Categorical(x)
-        action_index = action_distribution.sample()
-        log_prob = action_distribution.log_prob(action_index)
+
+        x = nn.functional.softmax(self.policy_net(obs), dim = -1)
+        distributions = torch.distributions.Categorical(x)
+        action_index = distributions.sample()
+        log_prob = distributions.log_prob(action_index)
         return action_index, log_prob
 
 
@@ -118,17 +137,19 @@ class Agent:
     def collect_trajectory(self, policy):
         obs, _ = self.env.reset(seed=self.params['rng_seed'])
         rollout_buffer = list()
+       
         for _ in range(self.params['n_trajectory_per_rollout']):
             trajectory_buffer = {'log_prob': list(), 'reward': list()}
             while True:
                 # TODO: Get action from the policy (forward pass of policy net)
                 action_idx, log_prob = policy(torch.tensor(obs, dtype = torch.float32))
-            
+
                 # TODO: Step environment (use self.env.step() function)
                 obs, reward, terminated, truncated, info = self.env.step(self.action_space[action_idx])
                 # Save log-prob and reward into the buffer
                 trajectory_buffer['log_prob'].append(log_prob)
                 trajectory_buffer['reward'].append(reward)
+
                 # Check for termination criteria
                 if terminated or truncated:
                     obs, _ = self.env.reset()
